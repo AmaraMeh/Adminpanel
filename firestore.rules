@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can only read/write their own user document
+    match /users/{userId} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null;
+    }
+
+    // Admin Check Function - UPDATED
+    function isAdmin() {
+      // Check if a document with the user's UID exists in the 'admins' collection
+      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      // Comment out or remove the custom claim check for now:
+      // return request.auth != null && request.auth.token.isAdmin == true;
+    }
+
+    // Years: Read for any logged-in user, CRUD for admin
+    match /years/{yearId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Specialties: Read for any logged-in user, CRUD for admin
+    match /specialties/{specialtyId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Modules: Read for any logged-in user, CRUD for admin
+    match /modules/{moduleId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Resources: Read for any logged-in user, CRUD for admin
+    match /resources/{resourceId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Other collections (e.g., foundItems, contributions) - Apply appropriate rules
+    match /foundItems/{itemId} {
+       allow read: if request.auth != null;
+       allow create: if request.auth != null;
+       allow update, delete: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Add rules for other collections like contributions, problem-reports etc.
+    // Example: Allow read for admins, create for logged-in users
+    match /contributions/{docId} {
+        allow read: if isAdmin();
+        allow create: if request.auth != null;
+        // Add update/delete rules as needed
+    }
+     match /problem-reports/{docId} {
+        allow read: if isAdmin();
+        allow create: if request.auth != null;
+        // Add update/delete rules as needed
+    }
+    // Add rules for st_announcements, subscriptions, friendRequests etc.
+
+    // Admins collection itself: Only admins can read/write it
+     match /admins/{adminId} {
+       allow read, write: if isAdmin();
+     }
+
+
+    // Deny access to any other unspecified collection by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
