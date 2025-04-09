@@ -17,6 +17,10 @@ import { styled, ThemeProvider, createTheme } from '@mui/material/styles';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
+// Firestore imports
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
+
 // Service function imports
 import {
     getYears, getSpecialties, getModules, addModule, updateModule, deleteModule,
@@ -24,7 +28,6 @@ import {
 } from '../services/firestoreService';
 
 const evaluationTypes: Array<"TD" | "TP" | "Examen"> = ["TD", "TP", "Examen"];
-const availableSemesters: string[] = ["Semestre 1", "Semestre 2"]; // Predefined semesters
 
 // Custom Theme
 const lightTheme = createTheme({
@@ -162,11 +165,13 @@ const ModulesPage: React.FC = () => {
     // --- State ---
     const [selectedYearId, setSelectedYearId] = useState<string>('');
     const [selectedSpecialtyId, setSelectedSpecialtyId] = useState<string>('');
+    const [selectedSemesterKey, setSelectedSemesterKey] = useState<string>('');
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [years, setYears] = useState<YearOption[]>([]);
     const [specialties, setSpecialties] = useState<SpecialtyOption[]>([]);
+    const [semesters, setSemesters] = useState<string[]>([]);
     const [modules, setModules] = useState<ModuleRow[]>([]);
-    const [loading, setLoading] = useState({ years: true, specialties: true, modules: false });
+    const [loading, setLoading] = useState({ years: true, specialties: true, semesters: false, modules: false });
     const [error, setError] = useState<string | null>(null);
     const [openDialog, setOpenDialog] = useState<boolean>(false);
     const [isEditMode, setIsEditMode] = useState<boolean>(false);
@@ -179,6 +184,7 @@ const ModulesPage: React.FC = () => {
 
     // --- Derived State ---
     const filteredSpecialties = useMemo(() => specialties.filter(spec => spec.yearId === selectedYearId), [selectedYearId, specialties]);
+    const semesterOptions = useMemo(() => semesters.map(s => ({ label: s, value: s })), [semesters]);
     const filteredModules = useMemo(() => {
         if (!searchQuery) return modules;
         return modules.filter(mod =>
@@ -207,17 +213,43 @@ const ModulesPage: React.FC = () => {
         loadInitialData();
     }, [loadInitialData]);
 
+    // --- Fetch Semesters ---
+    const loadSemesters = useCallback(async () => {
+        if (!selectedSpecialtyId || !db) {
+            setSemesters([]);
+            setSelectedSemesterKey('');
+            setModules([]);
+            return;
+        }
+        setLoading(prev => ({ ...prev, semesters: true }));
+        setError(null);
+        try {
+            const modulesQuery = query(collection(db, "modules"), where("specialtyId", "==", selectedSpecialtyId));
+            const modulesSnapshot = await getDocs(modulesQuery);
+            const semesterKeys = [...new Set(modulesSnapshot.docs.map(doc => doc.data().semesterKey || ''))].filter(Boolean).sort();
+            setSemesters(semesterKeys);
+        } catch (err: any) {
+            setError(err.message || "Erreur lors du chargement des semestres.");
+            toast.error(err.message || "Erreur lors du chargement des semestres.");
+        } finally {
+            setLoading(prev => ({ ...prev, semesters: false }));
+        }
+    }, [selectedSpecialtyId]);
+
+    useEffect(() => {
+        loadSemesters();
+    }, [loadSemesters]);
+
     // --- Fetch Modules ---
     const loadModules = useCallback(async () => {
-        if (!selectedSpecialtyId) {
+        if (!selectedSpecialtyId || !selectedSemesterKey) {
             setModules([]);
             return;
         }
         setLoading(prev => ({ ...prev, modules: true }));
         setError(null);
         try {
-            // Fetch all modules for the selected specialty, regardless of semester
-            const moduleData = await getModules(selectedSpecialtyId);
+            const moduleData = await getModules(selectedSpecialtyId, selectedSemesterKey);
             // Sanitize module data to ensure all required fields are present
             const sanitizedModules = moduleData.map(mod => {
                 const sanitizedMod: ModuleRow = {
@@ -225,7 +257,6 @@ const ModulesPage: React.FC = () => {
                     evaluations: Array.isArray(mod.evaluations) ? mod.evaluations : [],
                     noteEliminatoire: mod.noteEliminatoire !== undefined ? mod.noteEliminatoire : null,
                     moduleCode: mod.moduleCode || null,
-                    semesterKey: mod.semesterKey || "Semestre 1", // Fallback to "Semestre 1" if not set
                 };
                 // Log any module with missing or invalid fields for debugging
                 if (!Array.isArray(sanitizedMod.evaluations) || sanitizedMod.noteEliminatoire === undefined) {
@@ -240,7 +271,7 @@ const ModulesPage: React.FC = () => {
         } finally {
             setLoading(prev => ({ ...prev, modules: false }));
         }
-    }, [selectedSpecialtyId]);
+    }, [selectedSpecialtyId, selectedSemesterKey]);
 
     useEffect(() => {
         loadModules();
@@ -250,28 +281,23 @@ const ModulesPage: React.FC = () => {
     const resetSelection = () => {
         setSelectedYearId('');
         setSelectedSpecialtyId('');
+        setSelectedSemesterKey('');
         setSearchQuery('');
         setModules([]);
+        setSemesters([]);
         setError(null);
         toast.info("Sélection réinitialisée.");
     };
 
     const handleOpenAdd = () => {
-        if (!selectedYearId || !selectedSpecialtyId) {
-            setError("Veuillez sélectionner une année et une spécialité.");
-            toast.error("Veuillez sélectionner une année et une spécialité.");
+        if (!selectedYearId || !selectedSpecialtyId || !selectedSemesterKey) {
+            setError("Veuillez sélectionner une année, une spécialité et un semestre.");
+            toast.error("Veuillez sélectionner une année, une spécialité et un semestre.");
             return;
         }
         setCurrentModule({
-            name: '',
-            specialtyId: selectedSpecialtyId,
-            yearId: selectedYearId,
-            semesterKey: "Semestre 1", // Default to "Semestre 1"
-            moduleCode: '',
-            coefficient: 0,
-            credits: 0,
-            evaluations: [],
-            noteEliminatoire: null,
+            name: '', specialtyId: selectedSpecialtyId, yearId: selectedYearId, semesterKey: selectedSemesterKey,
+            moduleCode: '', coefficient: 0, credits: 0, evaluations: [], noteEliminatoire: null
         });
         setIsEditMode(false);
         setFormError(null);
@@ -305,14 +331,7 @@ const ModulesPage: React.FC = () => {
         const isNumeric = ['coefficient', 'credits', 'noteEliminatoire'].includes(name);
         setCurrentModule(prev => ({
             ...prev,
-            [name]: isNumeric ? (value === '' ? null : Number(value)) : value,
-        }));
-    };
-
-    const handleSemesterChange = (e: React.ChangeEvent<{ value: unknown }>) => {
-        setCurrentModule(prev => ({
-            ...prev,
-            semesterKey: e.target.value as string,
+            [name]: isNumeric ? (value === '' ? null : Number(value)) : value
         }));
     };
 
@@ -322,21 +341,13 @@ const ModulesPage: React.FC = () => {
             ...prev,
             evaluations: checked
                 ? [...(prev.evaluations || []), name as "TD" | "TP" | "Examen"]
-                : (prev.evaluations || []).filter(ev => ev !== name),
+                : (prev.evaluations || []).filter(ev => ev !== name)
         }));
     };
 
     const handleSubmit = async () => {
         const data = currentModule;
-        if (
-            !data.name?.trim() ||
-            !data.specialtyId ||
-            !data.yearId ||
-            !data.semesterKey ||
-            data.coefficient == null ||
-            data.credits == null ||
-            !data.evaluations?.length
-        ) {
+        if (!data.name?.trim() || !data.specialtyId || !data.yearId || !data.semesterKey || data.coefficient == null || data.credits == null || !data.evaluations?.length) {
             setFormError("Tous les champs obligatoires doivent être remplis.");
             toast.error("Tous les champs obligatoires doivent être remplis.");
             return;
@@ -363,15 +374,8 @@ const ModulesPage: React.FC = () => {
         setIsSubmitting(true);
         try {
             const dataToSave: ModuleData = {
-                name: data.name.trim(),
-                specialtyId: data.specialtyId,
-                yearId: data.yearId,
-                semesterKey: data.semesterKey,
-                moduleCode: data.moduleCode || null,
-                coefficient: coeff,
-                credits: creds,
-                evaluations: data.evaluations,
-                noteEliminatoire: elim,
+                name: data.name.trim(), specialtyId: data.specialtyId, yearId: data.yearId, semesterKey: data.semesterKey,
+                moduleCode: data.moduleCode || null, coefficient: coeff, credits: creds, evaluations: data.evaluations, noteEliminatoire: elim
             };
             if (isEditMode && data.id) {
                 await updateModule(data.id, dataToSave);
@@ -414,7 +418,6 @@ const ModulesPage: React.FC = () => {
     // --- DataGrid Columns ---
     const columns: GridColDef<ModuleRow>[] = [
         { field: 'name', headerName: 'Nom du Module', flex: 2, minWidth: 200 },
-        { field: 'semesterKey', headerName: 'Semestre', width: 120 }, // Added semester column
         { field: 'moduleCode', headerName: 'Code UE', width: 120, valueGetter: (value: string | null) => value || '—' },
         { field: 'coefficient', headerName: 'Coef.', width: 80, type: 'number', align: 'center', headerAlign: 'center' },
         { field: 'credits', headerName: 'Crédits', width: 80, type: 'number', align: 'center', headerAlign: 'center' },
@@ -423,7 +426,7 @@ const ModulesPage: React.FC = () => {
             headerName: 'Évaluations',
             width: 150,
             valueFormatter: (params: GridValueFormatterParams<string[]>) => {
-                if (!params) return '—';
+                if (!params) return '—'; // Handle case where params is null/undefined
                 return params.value && Array.isArray(params.value) && params.value.length > 0
                     ? params.value.join(', ')
                     : '—';
@@ -437,7 +440,7 @@ const ModulesPage: React.FC = () => {
             align: 'center',
             headerAlign: 'center',
             valueFormatter: (params: GridValueFormatterParams<number | null>) => {
-                if (!params) return '—';
+                if (!params) return '—'; // Handle case where params is null/undefined
                 return params.value !== null && params.value !== undefined ? params.value : '—';
             },
         },
@@ -473,7 +476,7 @@ const ModulesPage: React.FC = () => {
                         {/* Selection Area */}
                         <Paper sx={{ p: 3 }}>
                             <Grid container spacing={3} alignItems="center">
-                                <Grid item xs={12} sm={6}>
+                                <Grid item xs={12} sm={4}>
                                     <FormControl fullWidth disabled={loading.years}>
                                         <InputLabel>Année</InputLabel>
                                         <Select value={selectedYearId} label="Année" onChange={(e) => setSelectedYearId(e.target.value)}>
@@ -486,7 +489,7 @@ const ModulesPage: React.FC = () => {
                                         </Select>
                                     </FormControl>
                                 </Grid>
-                                <Grid item xs={12} sm={6}>
+                                <Grid item xs={12} sm={4}>
                                     <FormControl fullWidth disabled={!selectedYearId || loading.specialties}>
                                         <InputLabel>Spécialité</InputLabel>
                                         <Select value={selectedSpecialtyId} label="Spécialité" onChange={(e) => setSelectedSpecialtyId(e.target.value)}>
@@ -495,6 +498,19 @@ const ModulesPage: React.FC = () => {
                                                 <MenuItem disabled><CircularProgress size={20} /></MenuItem>
                                             ) : (
                                                 filteredSpecialties.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)
+                                            )}
+                                        </Select>
+                                    </FormControl>
+                                </Grid>
+                                <Grid item xs={12} sm={4}>
+                                    <FormControl fullWidth disabled={!selectedSpecialtyId || loading.semesters}>
+                                        <InputLabel>Semestre</InputLabel>
+                                        <Select value={selectedSemesterKey} label="Semestre" onChange={(e) => setSelectedSemesterKey(e.target.value)}>
+                                            <MenuItem value=""><em>Sélectionnez un semestre</em></MenuItem>
+                                            {loading.semesters ? (
+                                                <MenuItem disabled><CircularProgress size={20} /></MenuItem>
+                                            ) : (
+                                                semesterOptions.map(s => <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>)
                                             )}
                                         </Select>
                                     </FormControl>
@@ -516,7 +532,7 @@ const ModulesPage: React.FC = () => {
                                         />
                                         <Stack direction="row" spacing={2}>
                                             <Tooltip title="Réinitialiser">
-                                                <IconButton onClick={resetSelection} disabled={!selectedYearId && !selectedSpecialtyId}>
+                                                <IconButton onClick={resetSelection} disabled={!selectedYearId && !selectedSpecialtyId && !selectedSemesterKey}>
                                                     <RefreshIcon />
                                                 </IconButton>
                                             </Tooltip>
@@ -524,7 +540,7 @@ const ModulesPage: React.FC = () => {
                                                 variant="contained"
                                                 startIcon={<AddIcon />}
                                                 onClick={handleOpenAdd}
-                                                disabled={!selectedSpecialtyId || loading.modules}
+                                                disabled={!selectedSemesterKey || loading.modules}
                                             >
                                                 Ajouter un Module
                                             </Button>
@@ -542,9 +558,9 @@ const ModulesPage: React.FC = () => {
                                         <Skeleton key={i} variant="rectangular" height={50} />
                                     ))}
                                 </Stack>
-                            ) : !selectedSpecialtyId ? (
+                            ) : !selectedSemesterKey ? (
                                 <Typography color="text.secondary" textAlign="center" p={4}>
-                                    Sélectionnez une année et une spécialité pour voir les modules.
+                                    Sélectionnez une année, une spécialité et un semestre pour voir les modules.
                                 </Typography>
                             ) : filteredModules.length === 0 ? (
                                 <Typography color="text.secondary" textAlign="center" p={4}>
@@ -577,18 +593,6 @@ const ModulesPage: React.FC = () => {
                                     error={!!formError && !currentModule.name?.trim()}
                                     helperText={!!formError && !currentModule.name?.trim() ? "Ce champ est requis." : ""}
                                 />
-                                <FormControl fullWidth required>
-                                    <InputLabel>Semestre</InputLabel>
-                                    <Select
-                                        value={currentModule.semesterKey || "Semestre 1"}
-                                        label="Semestre"
-                                        onChange={handleSemesterChange}
-                                    >
-                                        {availableSemesters.map(semester => (
-                                            <MenuItem key={semester} value={semester}>{semester}</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
                                 <TextField
                                     label="Code UE (Optionnel)"
                                     name="moduleCode"

@@ -1,11 +1,11 @@
-// admin-panel/src/App.tsx
+// src/App.tsx
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './ProtectedRoute';
-import PasswordProtect from './PasswordProtect'; // Import PasswordProtect
+import PasswordProtect from './PasswordProtect';
 
 // Import Pages
 import LoginPage from './pages/LoginPage';
@@ -14,6 +14,7 @@ import YearsPage from './pages/YearsPage';
 import SpecialtiesPage from './pages/SpecialtiesPage';
 import ModulesPage from './pages/ModulesPage';
 import ResourcesPage from './pages/ResourcesPage';
+import UsersPage from './pages/UsersPage'; // Add UsersPage import
 import NotFoundPage from './pages/NotFoundPage';
 import AdminLayout from './components/Layout/AdminLayout';
 
@@ -27,12 +28,11 @@ function AppContent() {
 
             {/* Wrap ALL admin routes in PasswordProtect */}
             <Route
-                path="/" // Catch-all for admin section base path
+                path="/"
                 element={
-                    <ProtectedRoute> {/* First ensure Firebase login */}
-                        <PasswordProtect> {/* Then check admin password */}
+                    <ProtectedRoute>
+                        <PasswordProtect>
                             <AdminLayout>
-                                {/* Default route inside admin */}
                                 <DashboardPage />
                             </AdminLayout>
                         </PasswordProtect>
@@ -44,44 +44,61 @@ function AppContent() {
                 element={
                     <ProtectedRoute>
                         <PasswordProtect>
-                            <AdminLayout> <YearsPage /> </AdminLayout>
+                            <AdminLayout>
+                                <YearsPage />
+                            </AdminLayout>
                         </PasswordProtect>
                     </ProtectedRoute>
                 }
             />
-             <Route
+            <Route
                 path="/specialties"
                 element={
                     <ProtectedRoute>
                         <PasswordProtect>
-                            <AdminLayout> <SpecialtiesPage /> </AdminLayout>
+                            <AdminLayout>
+                                <SpecialtiesPage />
+                            </AdminLayout>
                         </PasswordProtect>
                     </ProtectedRoute>
                 }
             />
-             <Route
+            <Route
                 path="/modules"
                 element={
                     <ProtectedRoute>
                         <PasswordProtect>
-                            <AdminLayout> <ModulesPage /> </AdminLayout>
+                            <AdminLayout>
+                                <ModulesPage />
+                            </AdminLayout>
                         </PasswordProtect>
                     </ProtectedRoute>
                 }
             />
-             <Route
-                path="/resources" // You might need nested routes like /modules/:moduleId/resources
+            <Route
+                path="/resources"
                 element={
                     <ProtectedRoute>
                         <PasswordProtect>
-                            <AdminLayout> <ResourcesPage /> </AdminLayout>
+                            <AdminLayout>
+                                <ResourcesPage />
+                            </AdminLayout>
                         </PasswordProtect>
                     </ProtectedRoute>
                 }
             />
-            {/* Add more protected routes similarly */}
-
-
+            <Route
+                path="/users"
+                element={
+                    <ProtectedRoute>
+                        <PasswordProtect>
+                            <AdminLayout>
+                                <UsersPage />
+                            </AdminLayout>
+                        </PasswordProtect>
+                    </ProtectedRoute>
+                }
+            />
             {/* Fallback for Not Found */}
             <Route path="*" element={<NotFoundPage />} />
         </Routes>
@@ -91,7 +108,7 @@ function AppContent() {
 function App() {
     return (
         <ThemeProvider theme={theme}>
-             <CssBaseline />
+            <CssBaseline />
             <BrowserRouter>
                 <AuthProvider>
                     <AppContent />
